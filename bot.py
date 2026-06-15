@@ -1,35 +1,33 @@
+import os
 import joblib
-import re
 import numpy as np
+import re
 import pymorphy3
 import spacy
 import nltk
+import telebot
 from gensim.models import KeyedVectors
 from nltk.corpus import stopwords
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 
-nltk.download('stopwords')
-from google.colab import drive
-drive.mount('drive')
+nltk.download('stopwords', quiet=True)
 
-MODEL_PATH = '/content/drive/MyDrive/домашние задания/best_model.joblib'
-W2V_PATH = '/content/drive/MyDrive/домашние задания/word2vec_ruscorpora.kv'
+MODEL_PATH = "best_model.joblib"
+W2V_PATH = "word2vec_ruscorpora.kv"
 
-# загрузка предобученной модели и вспомогательных объектов
 classifier = joblib.load(MODEL_PATH)
 print("Модель успешно загружена")
 
 morph = pymorphy3.MorphAnalyzer()
 nlp = spacy.load("ru_core_news_sm")
 wv = KeyedVectors.load(W2V_PATH)
-stop_words = set(stopwords.words('russian')) - {'более','больше','всегда','иногда','лучше','нет','не','хорошо','никогда'}
 
-# класс предобработки
+stop_words = set(stopwords.words('russian')) - {
+    'более','больше','всегда','иногда','лучше','нет','не','хорошо','никогда'
+}
+
 class TextPreprocessing(BaseEstimator, TransformerMixin):
-    def __init__(self):
-        pass
-
     def fit(self, corpus):
         return self
 
@@ -43,11 +41,7 @@ class TextPreprocessing(BaseEstimator, TransformerMixin):
         tokens = [t for t in tokens if t not in stop_words]
         return ' '.join(tokens)
 
-# класс векторизации W2V
 class W2VVectorizer(BaseEstimator, TransformerMixin):
-    def __init__(self):
-        pass
-
     def fit(self, corpus):
         return self
 
@@ -58,24 +52,22 @@ class W2VVectorizer(BaseEstimator, TransformerMixin):
         vectors_word = []
         doc = nlp(text)
         text_markup = [f'{token.text}_{token.pos_}' for token in doc]
+
         for word in text_markup:
             if word in wv.index_to_key:
                 vectors_word.append(wv[word])
             else:
                 vectors_word.append(np.zeros(300))
+
         return np.mean(vectors_word, axis=0)
 
-# собираем pipeline
 model_fake_analysis = Pipeline([
     ('preproc', TextPreprocessing()),
     ('vec', W2VVectorizer()),
     ('clf', classifier)
 ])
 
-import telebot
-from google.colab import userdata
-
-bot = telebot.TeleBot(userdata.get('TELEGRAM_BOT_TOKEN'))
+bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -87,12 +79,11 @@ def handle_text(message):
     proba = model_fake_analysis.predict_proba([message.text])[0]
     confidence = max(proba) * 100
 
-    label = '*фейк*' if pred == 1 else '*не фейк*'
+    label = "фейк" if pred == 1 else "не фейк"
 
     bot.send_message(
         message.chat.id,
-        f"Новость:\t{message.text}\n\nПредсказание:\t{label}\nУверенность модели:\t{confidence:.1f}%",
-        parse_mode='Markdown'
+        f"Новость:\n{message.text}\n\nРезультат: {label}\nУверенность: {confidence:.1f}%",
     )
 
-bot.polling(non_stop=True, interval=1)
+bot.polling(non_stop=True)
