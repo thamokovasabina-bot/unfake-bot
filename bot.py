@@ -30,10 +30,8 @@ stop_words = set(stopwords.words('russian')) - {
 class TextPreprocessing(BaseEstimator, TransformerMixin):
     def fit(self, corpus):
         return self
-
     def transform(self, corpus):
         return [self.clean_text(text) for text in corpus]
-
     def clean_text(self, text):
         text = text.lower()
         tokens = re.findall(r'[а-яё]+', text)
@@ -44,21 +42,17 @@ class TextPreprocessing(BaseEstimator, TransformerMixin):
 class W2VVectorizer(BaseEstimator, TransformerMixin):
     def fit(self, corpus):
         return self
-
     def transform(self, corpus):
         return np.array([self.vec_text(text) for text in corpus])
-
     def vec_text(self, text):
         vectors_word = []
         doc = nlp(text)
         text_markup = [f'{token.text}_{token.pos_}' for token in doc]
-
         for word in text_markup:
             if word in wv.index_to_key:
                 vectors_word.append(wv[word])
             else:
                 vectors_word.append(np.zeros(300))
-
         return np.mean(vectors_word, axis=0)
 
 model_fake_analysis = Pipeline([
@@ -69,21 +63,38 @@ model_fake_analysis = Pipeline([
 
 bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
 
+def analyze_and_respond(bot, message, text):
+    pred = model_fake_analysis.predict([text])[0]
+    proba = model_fake_analysis.predict_proba([text])[0]
+    confidence = max(proba) * 100
+    label = "фейк" if pred == 1 else "не фейк"
+
+    bot.send_message(
+        message.chat.id,
+        f"Новость:\n{text}\n\nРезультат: {label}\nУверенность: {confidence:.1f}%",
+    )
+
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.send_message(message.chat.id, "Бот запущен! Отправь мне текст новости")
 
 @bot.message_handler(content_types=["text"])
 def handle_text(message):
-    pred = model_fake_analysis.predict([message.text])[0]
-    proba = model_fake_analysis.predict_proba([message.text])[0]
-    confidence = max(proba) * 100
+    analyze_and_respond(bot, message, message.text)
 
-    label = "фейк" if pred == 1 else "не фейк"
+@bot.message_handler(content_types=["photo"])
+def handle_photo(message):
+    if message.caption:
+        analyze_and_respond(bot, message, message.caption)
 
-    bot.send_message(
-        message.chat.id,
-        f"Новость:\n{message.text}\n\nРезультат: {label}\nУверенность: {confidence:.1f}%",
-    )
+@bot.message_handler(content_types=["video"])
+def handle_video(message):
+    if message.caption:
+        analyze_and_respond(bot, message, message.caption)
+
+@bot.message_handler(content_types=["document"])
+def handle_document(message):
+    if message.caption:
+        analyze_and_respond(bot, message, message.caption)
 
 bot.polling(non_stop=True)
