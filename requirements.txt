@@ -1,0 +1,8 @@
+telebot
+joblib
+numpy
+pymorphy3
+spacy
+nltk
+gensim
+scikit-learn
